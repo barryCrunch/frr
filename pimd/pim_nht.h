@@ -83,6 +83,11 @@ bool pim_nht_pnc_is_valid(struct pim_instance *pim, struct pim_nexthop_cache *pn
 /* Get (or add) the NH cache entry for the given address */
 struct pim_nexthop_cache *pim_nht_get(struct pim_instance *pim, pim_addr addr);
 
+/* (Re)send the zebra nexthop register for the given address to recover a lost
+ * registration, even when a local cache entry already exists.
+ */
+void pim_nht_register(struct pim_instance *pim, pim_addr addr);
+
 /* Set the gateway address for all nexthops in the given cache entry to the given address
  * unless the gateway is already set, and only if the nexthop is through the given interface.
  */

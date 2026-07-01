@@ -440,6 +440,39 @@ static void on_join_timer(struct event *t)
 		if (PIM_DEBUG_PIM_TRACE)
 			zlog_debug("%s: up %s RPF is not present", __func__,
 				   up->sg_str);
+
+		/* RPF is unresolved but a join is desired, and the resolving edge
+		 * (NHT update / neighbor-add / RP-config change) may have been
+		 * lost or never armed. Re-derive the RP and re-run the lookup
+		 * here, and keep the timer running until it resolves; without this
+		 * the upstream can stay NotJoined forever.
+		 */
+		if (pim_upstream_evaluate_join_desired(up->pim, up)) {
+			pim_upstream_update(up->pim, up);
+
+			if (!up->rpf.source_nexthop.interface &&
+			    !pim_addr_is_any(up->upstream_addr)) {
+				struct pim_rpf old;
+				enum pim_rpf_result res;
+
+				pim_nht_register(up->pim, up->upstream_addr);
+
+				old.source_nexthop.interface =
+					up->rpf.source_nexthop.interface;
+				res = pim_rpf_update(up->pim, up, &old, NULL,
+						     __func__);
+				if (res == PIM_RPF_CHANGED ||
+				    (res == PIM_RPF_FAILURE &&
+				     old.source_nexthop.interface))
+					pim_zebra_upstream_rpf_changed(up->pim,
+								       up, &old);
+				pim_upstream_mroute_iif_update(up->channel_oil,
+							       __func__);
+			}
+		}
+
+		if (!up->rpf.source_nexthop.interface)
+			join_timer_start(up);
 		return;
 	}
 
@@ -1041,6 +1074,13 @@ void pim_upstream_switch(struct pim_instance *pim, struct pim_upstream *up,
 		if (PIM_DEBUG_PIM_EVENTS)
 			zlog_debug("%s: RPF not configured for %s", __func__,
 				   up->sg_str);
+		/* Wanted to join but the RP/RPF is not resolved yet. Arm the J/P
+		 * timer so on_join_timer() periodically re-derives the RP and
+		 * re-resolves RPF; without this the upstream stays NotJoined
+		 * forever if the resolving event never arrives (see on_join_timer).
+		 */
+		if (new_state == PIM_UPSTREAM_JOINED)
+			join_timer_start(up);
 		return;
 	}
 
@@ -1048,6 +1088,8 @@ void pim_upstream_switch(struct pim_instance *pim, struct pim_upstream *up,
 		if (PIM_DEBUG_PIM_EVENTS)
 			zlog_debug("%s: RP not reachable for %s", __func__,
 				   up->sg_str);
+		if (new_state == PIM_UPSTREAM_JOINED)
+			join_timer_start(up);
 		return;
 	}
 

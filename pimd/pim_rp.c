@@ -331,9 +331,23 @@ struct rp_info *pim_rp_find_match_group(struct pim_instance *pim,
  */
 void pim_rp_refresh_group_to_rp_mapping(struct pim_instance *pim)
 {
+	struct pim_upstream *up;
+
 #if PIM_IPV == 4
 	pim_msdp_i_am_rp_changed(pim);
 #endif /* PIM_IPV == 4 */
+
+	/* A (*,G) created before any RP matched its group keeps upstream_addr ==
+	 * PIMADDR_ANY; it is skipped by pim_upstream_find_new_rpf() and would
+	 * stay NotJoined forever. Re-derive the RP for those once the mapping
+	 * becomes valid here (e.g. via a prefix-list change) so they can join.
+	 */
+	frr_each (rb_pim_upstream, &pim->upstream_head, up) {
+		if (pim_addr_is_any(up->sg.src) &&
+		    pim_addr_is_any(up->upstream_addr))
+			pim_upstream_update(pim, up);
+	}
+
 	/* Transition DM->SM upstreams first, then re-evaluate RPT/SPT usage
 	 * and finally re-evaluate source registration state.
 	 */

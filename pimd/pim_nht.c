@@ -523,6 +523,23 @@ struct pim_nexthop_cache *pim_nht_get(struct pim_instance *pim, pim_addr addr)
 	return pnc;
 }
 
+/* Re-send the nexthop register even when a local cache entry already exists.
+ * pim_nht_get() only registers on first create, so a register lost while zebra
+ * was busy (e.g. at startup) is never re-issued otherwise, leaving the nexthop
+ * untracked. Idempotent on the zebra side.
+ */
+void pim_nht_register(struct pim_instance *pim, pim_addr addr)
+{
+	struct pim_nexthop_cache *pnc;
+
+	pnc = pim_nexthop_cache_find(pim, addr);
+	if (pnc)
+		pim_sendmsg_zebra_rnh(pim, pim_zebra_zclient_get(), pnc->addr,
+				      ZEBRA_NEXTHOP_REGISTER);
+	else
+		(void)pim_nht_get(pim, addr);
+}
+
 void pim_nht_set_gateway(struct pim_instance *pim, struct pim_nexthop_cache *pnc, pim_addr addr,
 			 struct interface *ifp)
 {
