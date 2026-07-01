@@ -540,6 +540,31 @@ void pim_nht_register(struct pim_instance *pim, pim_addr addr)
 		(void)pim_nht_get(pim, addr);
 }
 
+static int pim_nht_hash_reregister_helper(struct hash_bucket *bucket, void *arg)
+{
+	struct pim_nexthop_cache *pnc = bucket->data;
+	struct pim_instance *pim = arg;
+
+	pim_sendmsg_zebra_rnh(pim, pim_zebra_zclient_get(), pnc->addr,
+			      ZEBRA_NEXTHOP_REGISTER);
+
+	return HASHWALK_CONTINUE;
+}
+
+/* Re-issue ZEBRA_NEXTHOP_REGISTER for every nexthop this VRF tracks. A
+ * reconnected zebra has dropped its per-client NHT state, and pim_nht_get()
+ * only registers on first create, so tracked nexthops would otherwise never be
+ * re-registered. Called from pim_zebra_connected(); mirrors
+ * bgp_nht_register_nexthops(). Idempotent.
+ */
+void pim_nht_reregister_all(struct pim_instance *pim)
+{
+	if (!pim->nht_hash)
+		return;
+
+	hash_walk(pim->nht_hash, pim_nht_hash_reregister_helper, pim);
+}
+
 void pim_nht_set_gateway(struct pim_instance *pim, struct pim_nexthop_cache *pnc, pim_addr addr,
 			 struct interface *ifp)
 {

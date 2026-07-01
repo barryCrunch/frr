@@ -88,6 +88,11 @@ struct pim_nexthop_cache *pim_nht_get(struct pim_instance *pim, pim_addr addr);
  */
 void pim_nht_register(struct pim_instance *pim, pim_addr addr);
 
+/* Replay ZEBRA_NEXTHOP_REGISTER for all tracked nexthops after a zebra
+ * reconnect, which drops all per-client NHT tracking state.
+ */
+void pim_nht_reregister_all(struct pim_instance *pim);
+
 /* Set the gateway address for all nexthops in the given cache entry to the given address
  * unless the gateway is already set, and only if the nexthop is through the given interface.
  */

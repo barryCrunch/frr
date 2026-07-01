@@ -14,6 +14,7 @@
 #include "network.h"
 #include "vty.h"
 #include "plist.h"
+#include "vrf.h"
 #include "lib/bfd.h"
 
 #include "pimd.h"
@@ -414,12 +415,27 @@ void sched_rpf_cache_refresh(struct pim_instance *pim)
 
 static void pim_zebra_connected(struct zclient *zclient)
 {
+	struct vrf *vrf;
+
 #if PIM_IPV == 4
 	/* Send the client registration */
 	bfd_client_sendmsg(zclient, ZEBRA_BFD_CLIENT_REGISTER, router->vrf_id);
 #endif
 
 	zclient_send_reg_requests(zclient, router->vrf_id);
+
+	/* A reconnected/restarted zebra has lost all per-client nexthop
+	 * tracking. Replay our NHT registrations for every VRF so zebra
+	 * resumes notifying us when tracked nexthops (RPs, sources) resolve.
+	 */
+	RB_FOREACH (vrf, vrf_id_head, &vrfs_by_id) {
+		struct pim_instance *pim = vrf->info;
+
+		if (!pim)
+			continue;
+
+		pim_nht_reregister_all(pim);
+	}
 
 #if PIM_IPV == 4
 	/* request for VxLAN BUM group addresses */
