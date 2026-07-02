@@ -61,6 +61,7 @@
 /* SRv6 Service Sub-TLV types */
 #define BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO 1
 #define BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_INFO_LENGTH 21
+#define BGP_PREFIX_SID_SRV6_SERVICE_SID_FLAGS_KNOWN_MASK 0x00
 
 /* SRv6 Service Data Sub-Sub-TLV types */
 #define BGP_PREFIX_SID_SRV6_L3_SERVICE_SID_STRUCTURE 1
@@ -487,7 +488,8 @@ extern void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi,
 				     const struct prefix *p, const struct prefix_rd *prd,
 				     mpls_label_t *label, uint8_t num_labels, bool addpath_capable,
 				     uint32_t addpath_tx_id, struct attr *attr,
-				     struct bgp_ls_nlri *ls_nlri);
+				     struct bgp_ls_nlri *ls_nlri,
+				     struct bgp_path_info *path);
 extern size_t bgp_packet_mpattr_prefix_size(afi_t afi, safi_t safi,
 					    const struct prefix *p);
 extern void bgp_packet_mpattr_end(struct stream *s, size_t sizep);
