@@ -109,6 +109,30 @@ def test_pim_rp_setup():
     # tgen.mininet_cli()
 
 
+def test_pim_nexthop_json():
+    "Ensure show ip pim nexthop json emits the cached nexthops without crashing"
+    # The RP nexthop cache entry has nexthops in both the MRIB and the URIB
+    # tables; rendering the second table used to crash pimd because the
+    # existing per-address row was found but its nexthops array was not
+    # fetched before appending to it.
+    tgen = get_topogen()
+
+    if tgen.routers_have_failure():
+        pytest.skip(tgen.errors)
+
+    r1 = tgen.gears["r1"]
+
+    out = r1.vtysh_cmd("show ip pim nexthop json", isjson=True)
+    assertmsg = '"{}" nexthop json missing entry for the RP'.format(r1.name)
+    assert "10.254.0.3" in out, assertmsg
+    nexthops = out["10.254.0.3"].get("nexthops", [])
+    assert len(nexthops) >= 2, "expected MRIB and URIB nexthops in one array"
+
+    # pimd must still be alive and answering after rendering the json
+    out = r1.vtysh_cmd("show ip pim rp-info json", isjson=True)
+    assert out is not None, "pimd stopped answering after nexthop json"
+
+
 def test_pim_send_mcast_stream():
     "Establish a Multicast stream from r2 -> r1 and then ensure S,G is created as appropriate"
     logger.info("Establish a Mcast stream from r2->r1 and then ensure S,G created")

@@ -2948,7 +2948,8 @@ static void pim_print_json_nexthop(json_object *json_obj, struct nexthop *nh_nod
 		json_object_object_addf(json_obj, json_row, "%s", addr_str);
 		json_arr = json_object_new_array();
 		json_object_object_add(json_row, "nexthops", json_arr);
-	}
+	} else
+		json_object_object_get_ex(json_row, "nexthops", &json_arr);
 
 	json_ifp = json_object_new_object();
 	json_object_string_add(json_ifp, "interface", ifp ? ifp->name : "NULL");
