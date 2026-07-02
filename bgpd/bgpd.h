@@ -107,6 +107,8 @@ enum bgp_af_index {
 	BGP_AF_IPV4_FLOWSPEC,
 	BGP_AF_IPV6_FLOWSPEC,
 	BGP_AF_BGP_LS,
+	BGP_AF_IPV4_UNREACH,
+	BGP_AF_IPV6_UNREACH,
 	BGP_AF_MAX
 };
 
@@ -1627,6 +1629,8 @@ struct peer {
 	struct peer_connection *connection;
 
 	int ttl;	     /* TTL of TCP connection to the peer. */
+	/* configured ebgp-multihop hop count; 0 if none */
+	int cfg_ttl;
 	int rtt;	     /* Estimated round-trip-time from TCP_INFO */
 	int rtt_expected; /* Expected round-trip-time for a peer */
 	uint8_t rtt_keepalive_rcv; /* Received count for RTT shutdown */
@@ -1852,6 +1856,7 @@ struct peer {
 /* BGP-LS per-peer link identifiers configured */
 #define PEER_FLAG_LS_LOCAL_LINK_ID  (1ULL << 49)
 #define PEER_FLAG_LS_REMOTE_LINK_ID (1ULL << 50)
+#define PEER_FLAG_EBGP_MULTIHOP	    (1ULL << 51) /* explicit ebgp-multihop config */
 
 	/*
 	 *GR-Disabled mode means unset PEER_FLAG_GRACEFUL_RESTART
@@ -2812,8 +2817,10 @@ extern void peer_af_flag_inherit(struct peer *peer, afi_t afi, safi_t safi,
 extern void peer_change_action(struct peer *peer, afi_t afi, safi_t safi,
 			       enum peer_change_type type);
 
-extern int peer_ebgp_multihop_set(struct peer *peer, int ttl);
-extern int peer_ebgp_multihop_unset(struct peer *peer);
+extern int peer_ebgp_multihop_set(struct peer *peer, int ttl, bool record_cfg);
+extern int peer_ebgp_multihop_unset(struct peer *peer, bool record_cfg);
+extern void peer_cfg_ttl_set(struct peer *peer, int cfg_ttl);
+extern int peer_gtsm_configured(struct peer *peer);
 extern int is_ebgp_multihop_configured(struct peer *peer);
 
 extern int peer_role_set(struct peer *peer, uint8_t role, bool strict_mode);
@@ -3012,6 +3019,9 @@ static inline int afindex(afi_t afi, safi_t safi)
 		case SAFI_FLOWSPEC:
 			return BGP_AF_IPV4_FLOWSPEC;
 		case SAFI_BGP_LS:
+			return BGP_AF_BGP_LS;
+		case SAFI_UNREACH:
+			return BGP_AF_IPV4_UNREACH;
 		case SAFI_EVPN:
 		case SAFI_UNSPEC:
 		case SAFI_MAX:
@@ -3033,6 +3043,9 @@ static inline int afindex(afi_t afi, safi_t safi)
 		case SAFI_FLOWSPEC:
 			return BGP_AF_IPV6_FLOWSPEC;
 		case SAFI_BGP_LS:
+			return BGP_AF_BGP_LS;
+		case SAFI_UNREACH:
+			return BGP_AF_IPV6_UNREACH;
 		case SAFI_EVPN:
 		case SAFI_UNSPEC:
 		case SAFI_MAX:
@@ -3050,6 +3063,7 @@ static inline int afindex(afi_t afi, safi_t safi)
 		case SAFI_MPLS_VPN:
 		case SAFI_ENCAP:
 		case SAFI_FLOWSPEC:
+		case SAFI_UNREACH:
 		case SAFI_UNSPEC:
 		case SAFI_MAX:
 			return BGP_AF_MAX;
@@ -3066,6 +3080,7 @@ static inline int afindex(afi_t afi, safi_t safi)
 		case SAFI_ENCAP:
 		case SAFI_EVPN:
 		case SAFI_FLOWSPEC:
+		case SAFI_UNREACH:
 		case SAFI_UNSPEC:
 		case SAFI_MAX:
 			return BGP_AF_MAX;
@@ -3091,13 +3106,10 @@ static inline int peer_group_active(struct peer *peer)
 /* If peer is negotiated at least one address family return 1. */
 static inline int peer_afi_active_nego(const struct peer *peer, afi_t afi)
 {
-	if (peer->afc_nego[afi][SAFI_UNICAST]
-	    || peer->afc_nego[afi][SAFI_MULTICAST]
-	    || peer->afc_nego[afi][SAFI_LABELED_UNICAST]
-	    || peer->afc_nego[afi][SAFI_MPLS_VPN]
-	    || peer->afc_nego[afi][SAFI_ENCAP]
-	    || peer->afc_nego[afi][SAFI_FLOWSPEC]
-	    || peer->afc_nego[afi][SAFI_EVPN])
+	if (peer->afc_nego[afi][SAFI_UNICAST] || peer->afc_nego[afi][SAFI_MULTICAST] ||
+	    peer->afc_nego[afi][SAFI_LABELED_UNICAST] || peer->afc_nego[afi][SAFI_MPLS_VPN] ||
+	    peer->afc_nego[afi][SAFI_ENCAP] || peer->afc_nego[afi][SAFI_FLOWSPEC] ||
+	    peer->afc_nego[afi][SAFI_UNREACH] || peer->afc_nego[afi][SAFI_EVPN])
 		return 1;
 	return 0;
 }
@@ -3111,12 +3123,14 @@ static inline int peer_group_af_configured(struct peer_group *group)
 	    || peer->afc[AFI_IP][SAFI_LABELED_UNICAST]
 	    || peer->afc[AFI_IP][SAFI_FLOWSPEC]
 	    || peer->afc[AFI_IP][SAFI_MPLS_VPN] || peer->afc[AFI_IP][SAFI_ENCAP]
+	    || peer->afc[AFI_IP][SAFI_UNREACH]
 	    || peer->afc[AFI_IP6][SAFI_UNICAST]
 	    || peer->afc[AFI_IP6][SAFI_MULTICAST]
 	    || peer->afc[AFI_IP6][SAFI_LABELED_UNICAST]
 	    || peer->afc[AFI_IP6][SAFI_MPLS_VPN]
 	    || peer->afc[AFI_IP6][SAFI_ENCAP]
 	    || peer->afc[AFI_IP6][SAFI_FLOWSPEC]
+	    || peer->afc[AFI_IP6][SAFI_UNREACH]
 	    || peer->afc[AFI_L2VPN][SAFI_EVPN]
 	    || peer->afc[AFI_BGP_LS][SAFI_BGP_LS])
 		return 1;
@@ -3304,14 +3318,27 @@ static inline bool bgp_gr_is_forwarding_preserved(struct bgp *bgp)
 		CHECK_FLAG(bgp->flags, BGP_FLAG_GR_PRESERVE_FWD));
 }
 
+static inline bool bgp_gr_is_forwarding_preserved_for_safi(struct bgp *bgp, afi_t afi, safi_t safi)
+{
+	/* SAFI_UNREACH has no forwarding state (purely control-plane UI-RIB).
+	 * Per RFC 4724, F-bit indicates forwarding state preservation.
+	 * Since there's no forwarding state, F=0.
+	 */
+	if (safi == SAFI_UNREACH)
+		return false;
+
+	return bgp_gr_is_forwarding_preserved(bgp);
+}
+
 static inline bool bgp_gr_supported_for_afi_safi(afi_t afi, safi_t safi)
 {
 	/*
 	 * GR restarter behavior is supported only for IPv4-unicast,
-	 * IPv6-unicast and L2vpn EVPN
+	 * IPv6-unicast, L2vpn EVPN, and IPv4/IPv6 unreachability
 	 */
 	if ((afi == AFI_IP && safi == SAFI_UNICAST) || (afi == AFI_IP6 && safi == SAFI_UNICAST) ||
-	    (afi == AFI_L2VPN && safi == SAFI_EVPN))
+	    (afi == AFI_L2VPN && safi == SAFI_EVPN) || (afi == AFI_IP && safi == SAFI_UNREACH) ||
+	    (afi == AFI_IP6 && safi == SAFI_UNREACH))
 		return true;
 	return false;
 }
